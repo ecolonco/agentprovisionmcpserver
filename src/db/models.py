@@ -60,6 +60,13 @@ class EntityType(str, enum.Enum):
     VISIT = "visit"
 
 
+class UserRole(str, enum.Enum):
+    """User roles for authentication system"""
+    USER = "user"
+    ADMIN = "admin"
+    MODERATOR = "moderator"
+
+
 class IntegrationSystem(str, enum.Enum):
     """Supported integration systems"""
     ADP = "adp"
@@ -320,3 +327,128 @@ class SyncState(Base):
 
     def __repr__(self):
         return f"<SyncState {self.source_system}->{self.target_system} {self.entity_type}>"
+
+
+# ============================================
+# User Authentication & Management
+# ============================================
+
+class User(Base):
+    """
+    User model for authentication system
+    Multi-tenant support via tenant field
+    """
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Tenant isolation
+    tenant = Column(String(100), nullable=False, index=True)  # e.g., 'talleresia', 'eunacom'
+
+    # User identification
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    hashed_password = Column(String(255), nullable=False)
+
+    # User information
+    full_name = Column(String(255), nullable=True)
+    phone = Column(String(50), nullable=True)
+
+    # Account status
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_verified = Column(Boolean, default=False, nullable=False)  # Email verification
+    role = Column(SQLEnum(UserRole), default=UserRole.USER, nullable=False)
+
+    # Metadata
+    last_login = Column(DateTime, nullable=True)
+    profile_data = Column(JSON, nullable=True)  # Additional user data
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    verification_tokens = relationship("EmailVerificationToken", back_populates="user", cascade="all, delete-orphan")
+    password_reset_tokens = relationship("PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index('idx_user_email', 'email'),
+        Index('idx_user_tenant', 'tenant'),
+        Index('idx_user_tenant_email', 'tenant', 'email'),
+        Index('idx_user_active', 'is_active'),
+        Index('idx_user_verified', 'is_verified'),
+    )
+
+    def __repr__(self):
+        return f"<User {self.email} ({self.tenant})>"
+
+
+class EmailVerificationToken(Base):
+    """
+    Email verification tokens for user registration
+    Tokens expire after 24 hours
+    """
+    __tablename__ = "email_verification_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # User reference
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+
+    # Token
+    token = Column(String(255), nullable=False, unique=True, index=True)
+
+    # Expiration
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationship
+    user = relationship("User", back_populates="verification_tokens")
+
+    __table_args__ = (
+        Index('idx_verification_token', 'token'),
+        Index('idx_verification_user', 'user_id'),
+        Index('idx_verification_expires', 'expires_at'),
+    )
+
+    def __repr__(self):
+        return f"<EmailVerificationToken {self.user_id}>"
+
+
+class PasswordResetToken(Base):
+    """
+    Password reset tokens
+    Tokens expire after 1 hour
+    """
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # User reference
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+
+    # Token
+    token = Column(String(255), nullable=False, unique=True, index=True)
+
+    # Expiration
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationship
+    user = relationship("User", back_populates="password_reset_tokens")
+
+    __table_args__ = (
+        Index('idx_reset_token', 'token'),
+        Index('idx_reset_user', 'user_id'),
+        Index('idx_reset_expires', 'expires_at'),
+    )
+
+    def __repr__(self):
+        return f"<PasswordResetToken {self.user_id}>"
