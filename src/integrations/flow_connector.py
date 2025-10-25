@@ -356,6 +356,294 @@ class FlowConnector:
         """Close HTTP client"""
         await self.client.aclose()
 
+    # ============================================
+    # Customer Management (for Subscriptions)
+    # ============================================
+
+    async def create_customer(
+        self,
+        email: str,
+        name: Optional[str] = None,
+        external_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a customer in Flow (required for subscriptions)
+
+        Args:
+            email: Customer email
+            name: Customer name
+            external_id: Your internal customer ID
+
+        Returns:
+            Customer object with customerId
+        """
+        logger.info(f"Creating Flow customer: {email}")
+
+        params = {
+            "email": email,
+            "externalId": external_id or email,
+            "name": name or email.split('@')[0]
+        }
+        params["s"] = self._generate_signature(params)
+
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/customer/create",
+                data=params
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            if "customerId" in result:
+                logger.info(f"Customer created: {result['customerId']}")
+                return result
+            else:
+                raise Exception(f"Flow did not return customerId: {result}")
+
+        except httpx.HTTPError as e:
+            logger.error(f"Error creating customer: {str(e)}")
+            raise
+
+    async def list_customers(self) -> Dict[str, Any]:
+        """
+        List all customers
+
+        Returns:
+            List of customers
+        """
+        logger.info("Listing Flow customers")
+
+        params = {"apiKey": self.api_key}
+        params["s"] = self._generate_signature(params)
+
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/customer/list",
+                data=params
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except httpx.HTTPError as e:
+            logger.error(f"Error listing customers: {str(e)}")
+            raise
+
+    async def get_customer_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Get customer by email
+
+        Args:
+            email: Customer email
+
+        Returns:
+            Customer object or None
+        """
+        try:
+            customers_response = await self.list_customers()
+            customers = customers_response.get("data", [])
+
+            for customer in customers:
+                if customer.get("email") == email or customer.get("externalId") == email:
+                    return customer
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting customer by email: {str(e)}")
+            return None
+
+    # ============================================
+    # Subscription Management
+    # ============================================
+
+    async def create_subscription(
+        self,
+        customer_id: str,
+        plan_id: str,
+        subscription_id: Optional[str] = None,
+        url_return: Optional[str] = None,
+        url_confirmation: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a subscription for a customer
+
+        Args:
+            customer_id: Flow customer ID
+            plan_id: Plan ID configured in Flow dashboard
+            subscription_id: Your internal subscription ID
+            url_return: URL to redirect user after subscription
+            url_confirmation: Webhook URL for confirmations
+
+        Returns:
+            Subscription object
+        """
+        logger.info(f"Creating subscription for customer {customer_id}, plan: {plan_id}")
+
+        params = {
+            "customerId": customer_id,
+            "planId": plan_id,
+            "plan": plan_id,  # Compatibility
+        }
+
+        if subscription_id:
+            params["subscription_id"] = subscription_id
+
+        if url_return:
+            params["urlReturn"] = url_return
+
+        if url_confirmation:
+            params["urlConfirmation"] = url_confirmation
+
+        params["s"] = self._generate_signature(params)
+
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/subscription/create",
+                data=params
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            logger.info(f"Subscription created: {result.get('subscriptionId')}")
+            return result
+
+        except httpx.HTTPError as e:
+            logger.error(f"Error creating subscription: {str(e)}")
+            raise
+
+    async def create_subscription_payment(
+        self,
+        amount: int,
+        email: str,
+        plan_id: str,
+        subject: str,
+        url_return: Optional[str] = None,
+        url_confirmation: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a payment with subscription (one-step approach)
+
+        This creates a payment that also registers a subscription.
+        Useful when customer doesn't exist yet in Flow.
+
+        Args:
+            amount: Amount in CLP
+            email: Customer email
+            plan_id: Plan ID
+            subject: Payment description
+            url_return: Return URL
+            url_confirmation: Webhook URL
+            metadata: Additional metadata
+
+        Returns:
+            Payment object with subscription info
+        """
+        logger.info(f"Creating subscription payment for {email}, plan: {plan_id}")
+
+        commerce_order = f"SUB_{int(datetime.now().timestamp())}_{self.tenant}"
+
+        params = {
+            "commerceOrder": commerce_order,
+            "subject": subject,
+            "currency": "CLP",
+            "amount": amount,
+            "email": email,
+            "paymentMethod": 9,  # All payment methods
+            "subscription": 1,  # Enable subscription
+            "planId": plan_id,
+            "plan": plan_id,  # Compatibility
+        }
+
+        if url_return:
+            params["urlReturn"] = url_return
+
+        if url_confirmation:
+            params["urlConfirmation"] = url_confirmation
+
+        if metadata:
+            for key, value in metadata.items():
+                params[f"optional[{key}]"] = value
+
+        params["s"] = self._generate_signature(params)
+
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/payment/create",
+                data=params
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            result["payment_url"] = f"{self.payment_url}?token={result['token']}"
+            logger.info(f"Subscription payment created: {result.get('flowOrder')}")
+            return result
+
+        except httpx.HTTPError as e:
+            logger.error(f"Error creating subscription payment: {str(e)}")
+            raise
+
+    async def get_subscription_status(self, subscription_id: str) -> Dict[str, Any]:
+        """
+        Get subscription status
+
+        Args:
+            subscription_id: Flow subscription ID
+
+        Returns:
+            Subscription status
+        """
+        logger.info(f"Getting subscription status: {subscription_id}")
+
+        params = {
+            "subscriptionId": subscription_id
+        }
+        params["s"] = self._generate_signature(params)
+
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/subscription/get",
+                params=params
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except httpx.HTTPError as e:
+            logger.error(f"Error getting subscription status: {str(e)}")
+            raise
+
+    async def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:
+        """
+        Cancel a subscription
+
+        Args:
+            subscription_id: Flow subscription ID
+
+        Returns:
+            Cancellation confirmation
+        """
+        logger.info(f"Cancelling subscription: {subscription_id}")
+
+        params = {
+            "subscriptionId": subscription_id
+        }
+        params["s"] = self._generate_signature(params)
+
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/subscription/cancel",
+                data=params
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            logger.info(f"Subscription cancelled: {subscription_id}")
+            return result
+
+        except httpx.HTTPError as e:
+            logger.error(f"Error cancelling subscription: {str(e)}")
+            raise
+
 
 # ============================================
 # Helper Functions

@@ -567,3 +567,252 @@ async def get_flow_payment_methods(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting payment methods: {str(e)}"
         )
+
+
+# ============================================
+# Flow.cl Subscription Endpoints (Chile)
+# ============================================
+
+class FlowSubscriptionRequest(BaseModel):
+    """Request to create a Flow subscription"""
+    amount: int  # Monthly amount in CLP
+    plan_id: str  # Plan ID configured in Flow dashboard
+    customer_email: EmailStr
+    customer_name: Optional[str] = None
+    url_return: Optional[str] = None
+    metadata: Optional[dict] = {}
+
+
+class FlowSubscriptionResponse(BaseModel):
+    """Response with Flow subscription details"""
+    subscription_id: str
+    customer_id: str
+    plan_id: str
+    payment_url: str
+    token: str
+    status: str
+
+
+@router.post(
+    "/payments/flow/subscription/create",
+    response_model=FlowSubscriptionResponse,
+    status_code=status.HTTP_201_CREATED
+)
+async def create_flow_subscription(
+    request: FlowSubscriptionRequest,
+    x_tenant: str = Header(..., description="Tenant identifier"),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a monthly subscription with Flow.cl (Chile)
+
+    **Flujo Completo de Suscripción:**
+    1. Crea o busca cliente en Flow
+    2. Crea pago inicial con suscripción adjunta
+    3. Usuario completa pago en Flow
+    4. Flow activa cobros mensuales automáticos
+
+    **Ejemplo para TalleresIA (suscripción mensual):**
+    ```json
+    POST /api/v1/payments/flow/subscription/create
+    Headers:
+      X-API-Key: your-api-key
+      X-Tenant: talleresia
+    Body:
+    {
+      "amount": 50000,
+      "plan_id": "50000 Mensual",
+      "customer_email": "alumno@example.com",
+      "customer_name": "Juan Pérez",
+      "url_return": "https://talleresia.cl/subscription/success"
+    }
+    ```
+
+    **Plan IDs:**
+    Los planes deben estar configurados previamente en tu dashboard de Flow.cl
+    Ejemplo: "5000 Mensual", "10000 Mensual", "50000 Mensual", etc.
+
+    **Returns:**
+    - subscription_id: ID de la suscripción
+    - customer_id: ID del cliente en Flow
+    - payment_url: URL para completar el primer pago
+    - token: Token del pago
+    """
+    logger.info(
+        f"Creating Flow subscription for tenant {x_tenant}: "
+        f"plan={request.plan_id}, email={request.customer_email}"
+    )
+
+    try:
+        flow = await get_flow_connector(x_tenant)
+
+        # Step 1: Get or create customer
+        logger.info("Step 1: Getting or creating customer")
+        customer = await flow.get_customer_by_email(request.customer_email)
+
+        if customer:
+            customer_id = customer["customerId"]
+            logger.info(f"Customer found: {customer_id}")
+        else:
+            logger.info("Customer not found, creating new")
+            customer_response = await flow.create_customer(
+                email=request.customer_email,
+                name=request.customer_name,
+                external_id=request.customer_email
+            )
+            customer_id = customer_response["customerId"]
+            logger.info(f"Customer created: {customer_id}")
+
+        # Step 2: Create subscription payment (one-step approach)
+        logger.info("Step 2: Creating subscription payment")
+
+        from src.core.config import settings
+        webhook_url = f"{settings.HOST}:{settings.PORT}{settings.API_V1_PREFIX}/payments/flow/webhook"
+
+        payment_response = await flow.create_subscription_payment(
+            amount=request.amount,
+            email=request.customer_email,
+            plan_id=request.plan_id,
+            subject=f"Suscripción Mensual - {request.plan_id}",
+            url_return=request.url_return,
+            url_confirmation=webhook_url,
+            metadata={
+                **request.metadata,
+                "tenant": x_tenant,
+                "customer_name": request.customer_name,
+                "subscription_type": "monthly"
+            }
+        )
+
+        # Create audit log
+        await crud.AuditLogCRUD.create(
+            db,
+            schemas.AuditLogCreate(
+                event_type="flow_subscription_created",
+                action="CREATE",
+                status="SUCCESS",
+                entity_type=models.EntityType.PAYMENT,
+                entity_id=payment_response.get("token"),
+                source_system=models.IntegrationSystem.DENTALERP,
+                target_system=models.IntegrationSystem.BANK,
+                request_data={
+                    "amount": request.amount,
+                    "plan_id": request.plan_id,
+                    "email": request.customer_email
+                },
+                response_data=payment_response
+            )
+        )
+
+        await flow.close()
+
+        return FlowSubscriptionResponse(
+            subscription_id=payment_response.get("flowOrder", "pending"),
+            customer_id=customer_id,
+            plan_id=request.plan_id,
+            payment_url=payment_response["payment_url"],
+            token=payment_response["token"],
+            status="pending_first_payment"
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating Flow subscription: {str(e)}")
+
+        await crud.AuditLogCRUD.create(
+            db,
+            schemas.AuditLogCreate(
+                event_type="flow_subscription_failed",
+                action="CREATE",
+                status="FAILED",
+                entity_type=models.EntityType.PAYMENT,
+                error_details={"error": str(e)}
+            )
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating Flow subscription: {str(e)}"
+        )
+
+
+@router.get("/payments/flow/subscription/{subscription_id}/status")
+async def get_flow_subscription_status(
+    subscription_id: str,
+    x_tenant: str = Header(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get Flow subscription status
+
+    Check if subscription is active, paused, or cancelled
+    """
+    logger.info(f"Getting Flow subscription status: {subscription_id}")
+
+    try:
+        flow = await get_flow_connector(x_tenant)
+        status_response = await flow.get_subscription_status(subscription_id)
+        await flow.close()
+
+        return {
+            "subscription_id": subscription_id,
+            "status": status_response.get("status"),
+            "plan_id": status_response.get("planId"),
+            "next_invoice_date": status_response.get("next_invoice_date"),
+            "created_at": status_response.get("created")
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting subscription status: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Subscription not found: {str(e)}"
+        )
+
+
+@router.post("/payments/flow/subscription/{subscription_id}/cancel")
+async def cancel_flow_subscription(
+    subscription_id: str,
+    x_tenant: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Cancel a Flow subscription
+
+    This will stop future recurring charges
+    """
+    logger.info(f"Cancelling Flow subscription: {subscription_id}")
+
+    try:
+        flow = await get_flow_connector(x_tenant)
+        cancel_response = await flow.cancel_subscription(subscription_id)
+
+        # Log cancellation
+        await crud.AuditLogCRUD.create(
+            db,
+            schemas.AuditLogCreate(
+                event_type="flow_subscription_cancelled",
+                action="UPDATE",
+                status="SUCCESS",
+                entity_type=models.EntityType.PAYMENT,
+                entity_id=subscription_id,
+                request_data={"user": current_user.get("name")},
+                response_data=cancel_response
+            )
+        )
+
+        await flow.close()
+
+        return {
+            "subscription_id": subscription_id,
+            "status": "cancelled",
+            "message": "Subscription cancelled successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"Error cancelling subscription: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error cancelling subscription: {str(e)}"
+        )
