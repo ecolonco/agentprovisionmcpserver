@@ -392,6 +392,526 @@ await mcpClient.createFlowPayment({
 
 ---
 
+## 🔁 Suscripciones / Pagos Recurrentes
+
+**¡NUEVA FUNCIONALIDAD!** El MCP Server ahora soporta suscripciones mensuales automáticas con Flow.cl.
+
+### ¿Qué son las Suscripciones?
+
+Las suscripciones permiten cobrar **automáticamente cada mes** a tus clientes sin que tengan que pagar manualmente. Perfecto para:
+
+- **TalleresIA**: Membresía mensual con acceso a todos los talleres
+- **Eunacom**: Acceso mensual a simulaciones y material de estudio
+- **SaaS**: Cualquier servicio de suscripción mensual
+
+### 📋 Paso 1: Configurar Planes en Flow.cl Dashboard
+
+Antes de usar suscripciones, debes crear tus planes en Flow.cl:
+
+1. Ingresa a https://www.flow.cl/app
+2. Ve a **Suscripciones** → **Planes**
+3. Crea un nuevo plan:
+   - **ID del Plan**: `5000-mensual` (ejemplo)
+   - **Nombre**: "Membresía Básica Mensual"
+   - **Monto**: $5.000 CLP
+   - **Periodicidad**: Mensual
+   - **Auto-renovable**: Sí
+
+Repite para cada plan que necesites (ej: `10000-mensual`, `20000-mensual`).
+
+### 📋 Paso 2: Actualizar Cliente MCP con Suscripciones
+
+```typescript
+// src/lib/mcp-client.ts
+
+export interface FlowSubscriptionRequest {
+  amount: number;           // Monto mensual en CLP
+  customer_email: string;   // Email del cliente
+  plan_id: string;          // ID del plan en Flow (ej: "5000-mensual")
+  url_return?: string;      // URL de retorno después del pago
+  metadata?: Record<string, any>;
+}
+
+export interface FlowSubscriptionResponse {
+  subscription_id: string;
+  token: string;
+  payment_url: string;
+  customer_id: string;
+  plan_id: string;
+  status: string;
+}
+
+class MCPClient {
+  // ... código existente ...
+
+  /**
+   * Crear una suscripción mensual con Flow.cl
+   * Esta función crea el customer (si no existe) y la suscripción en un solo paso
+   */
+  async createFlowSubscription(
+    request: FlowSubscriptionRequest
+  ): Promise<FlowSubscriptionResponse> {
+    const response = await fetch(
+      `${this.baseURL}/payments/flow/subscription/create`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.apiKey,
+          'X-Tenant': this.tenant,
+        },
+        body: JSON.stringify(request),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Error creating Flow subscription');
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Consultar estado de una suscripción
+   */
+  async getFlowSubscriptionStatus(subscriptionId: string) {
+    const response = await fetch(
+      `${this.baseURL}/payments/flow/subscription/${subscriptionId}/status`,
+      {
+        headers: {
+          'X-API-Key': this.apiKey,
+          'X-Tenant': this.tenant,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Error fetching Flow subscription status');
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Cancelar una suscripción
+   */
+  async cancelFlowSubscription(subscriptionId: string) {
+    const response = await fetch(
+      `${this.baseURL}/payments/flow/subscription/${subscriptionId}/cancel`,
+      {
+        method: 'POST',
+        headers: {
+          'X-API-Key': this.apiKey,
+          'X-Tenant': this.tenant,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Error canceling Flow subscription');
+    }
+
+    return response.json();
+  }
+}
+```
+
+### 📋 Paso 3: Implementar Componente de Suscripción
+
+```typescript
+// src/app/subscribe/page.tsx
+
+'use client';
+
+import { useState } from 'react';
+import { mcpClient } from '@/lib/mcp-client';
+
+const SUBSCRIPTION_PLANS = [
+  {
+    id: '5000-mensual',
+    name: 'Básico',
+    price: 5000,
+    description: 'Acceso a talleres básicos',
+  },
+  {
+    id: '10000-mensual',
+    name: 'Pro',
+    price: 10000,
+    description: 'Acceso a todos los talleres',
+  },
+  {
+    id: '20000-mensual',
+    name: 'Premium',
+    price: 20000,
+    description: 'Acceso VIP + mentoría',
+  },
+];
+
+export default function SubscribePage() {
+  const [loading, setLoading] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState(SUBSCRIPTION_PLANS[0]);
+  const [email, setEmail] = useState('');
+
+  async function handleSubscribe(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      // 1. Crear suscripción en Flow.cl vía MCP Server
+      const subscription = await mcpClient.createFlowSubscription({
+        amount: selectedPlan.price,
+        customer_email: email,
+        plan_id: selectedPlan.id,
+        url_return: 'https://talleresia.cl/subscription-success',
+        metadata: {
+          plan_name: selectedPlan.name,
+          plan_description: selectedPlan.description,
+        },
+      });
+
+      console.log('Subscription created:', subscription);
+
+      // 2. Redirigir al usuario a Flow para completar el primer pago
+      window.location.href = subscription.payment_url;
+
+      // 3. Después del primer pago exitoso:
+      //    - Flow cobrará automáticamente cada mes
+      //    - Recibirás webhooks en cada cobro
+      //    - El usuario no necesita pagar manualmente
+
+    } catch (err: any) {
+      console.error('Error:', err);
+      alert(`Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="container mx-auto p-8">
+      <h1 className="text-3xl font-bold mb-6">
+        Suscribirte a TalleresIA 🇨🇱
+      </h1>
+
+      <form onSubmit={handleSubscribe} className="max-w-2xl">
+        {/* Email */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium mb-2">
+            Tu Email
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="w-full px-4 py-2 border rounded-lg"
+            placeholder="alumno@example.com"
+          />
+        </div>
+
+        {/* Planes */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium mb-2">
+            Selecciona tu Plan
+          </label>
+          <div className="grid grid-cols-3 gap-4">
+            {SUBSCRIPTION_PLANS.map((plan) => (
+              <div
+                key={plan.id}
+                onClick={() => setSelectedPlan(plan)}
+                className={`
+                  p-4 border-2 rounded-lg cursor-pointer transition
+                  ${selectedPlan.id === plan.id
+                    ? 'border-blue-600 bg-blue-50'
+                    : 'border-gray-300 hover:border-blue-400'
+                  }
+                `}
+              >
+                <h3 className="font-bold text-lg mb-1">{plan.name}</h3>
+                <p className="text-2xl font-bold text-green-600 mb-2">
+                  ${plan.price.toLocaleString()} CLP
+                </p>
+                <p className="text-sm text-gray-600">
+                  {plan.description}
+                </p>
+                <p className="text-xs text-gray-500 mt-2">
+                  Por mes, renovación automática
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Info */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <h4 className="font-semibold mb-2">📋 ¿Cómo funciona?</h4>
+          <ul className="text-sm text-gray-700 space-y-1">
+            <li>✅ Pagas el primer mes ahora con Webpay</li>
+            <li>✅ Flow cobrará automáticamente cada mes</li>
+            <li>✅ Puedes cancelar en cualquier momento</li>
+            <li>✅ Sin compromiso de permanencia</li>
+          </ul>
+        </div>
+
+        {/* Submit */}
+        <button
+          type="submit"
+          disabled={loading || !email}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition"
+        >
+          {loading ? 'Procesando...' : `Suscribirme por $${selectedPlan.price.toLocaleString()} CLP/mes`}
+        </button>
+
+        <p className="text-xs text-gray-500 mt-4 text-center">
+          Powered by Flow.cl - Pago seguro con renovación automática
+        </p>
+      </form>
+    </div>
+  );
+}
+```
+
+### 📋 Paso 4: Página de Gestión de Suscripciones
+
+```typescript
+// src/app/my-subscription/page.tsx
+
+'use client';
+
+import { useEffect, useState } from 'react';
+import { mcpClient } from '@/lib/mcp-client';
+
+export default function MySubscriptionPage() {
+  const [subscription, setSubscription] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [canceling, setCanceling] = useState(false);
+
+  useEffect(() => {
+    loadSubscription();
+  }, []);
+
+  async function loadSubscription() {
+    try {
+      // Obtener subscriptionId de tu base de datos o localStorage
+      const subscriptionId = localStorage.getItem('subscription_id');
+
+      if (subscriptionId) {
+        const status = await mcpClient.getFlowSubscriptionStatus(subscriptionId);
+        setSubscription(status);
+      }
+    } catch (err) {
+      console.error('Error loading subscription:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCancel() {
+    if (!confirm('¿Estás seguro de cancelar tu suscripción?')) {
+      return;
+    }
+
+    setCanceling(true);
+    try {
+      await mcpClient.cancelFlowSubscription(subscription.subscription_id);
+      alert('Suscripción cancelada exitosamente');
+      loadSubscription(); // Recargar estado
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setCanceling(false);
+    }
+  }
+
+  if (loading) {
+    return <div>Cargando...</div>;
+  }
+
+  if (!subscription) {
+    return (
+      <div className="container mx-auto p-8">
+        <p>No tienes una suscripción activa.</p>
+        <a href="/subscribe" className="text-blue-600 hover:underline">
+          Suscribirte ahora
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto p-8">
+      <h1 className="text-3xl font-bold mb-6">Mi Suscripción</h1>
+
+      <div className="bg-white shadow-lg rounded-lg p-6 max-w-2xl">
+        {/* Estado */}
+        <div className="mb-4">
+          <span className={`
+            inline-block px-3 py-1 rounded-full text-sm font-semibold
+            ${subscription.status === 'active'
+              ? 'bg-green-100 text-green-800'
+              : 'bg-red-100 text-red-800'
+            }
+          `}>
+            {subscription.status === 'active' ? '✅ Activa' : '❌ Inactiva'}
+          </span>
+        </div>
+
+        {/* Plan */}
+        <div className="mb-4">
+          <p className="text-gray-600 text-sm">Plan</p>
+          <p className="text-2xl font-bold">{subscription.plan_id}</p>
+        </div>
+
+        {/* Monto */}
+        <div className="mb-4">
+          <p className="text-gray-600 text-sm">Monto mensual</p>
+          <p className="text-2xl font-bold text-green-600">
+            ${subscription.amount?.toLocaleString()} CLP
+          </p>
+        </div>
+
+        {/* Email */}
+        <div className="mb-4">
+          <p className="text-gray-600 text-sm">Email</p>
+          <p className="text-lg">{subscription.email}</p>
+        </div>
+
+        {/* Próximo cobro */}
+        {subscription.next_payment_date && (
+          <div className="mb-4">
+            <p className="text-gray-600 text-sm">Próximo cobro</p>
+            <p className="text-lg">
+              {new Date(subscription.next_payment_date).toLocaleDateString('es-CL')}
+            </p>
+          </div>
+        )}
+
+        {/* Cancelar */}
+        {subscription.status === 'active' && (
+          <button
+            onClick={handleCancel}
+            disabled={canceling}
+            className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg disabled:opacity-50 transition"
+          >
+            {canceling ? 'Cancelando...' : 'Cancelar Suscripción'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+### 🔄 Flujo Completo de Suscripción
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│              FLUJO DE SUSCRIPCIÓN CON FLOW.CL                 │
+└──────────────────────────────────────────────────────────────┘
+
+1. Usuario selecciona plan y hace clic en "Suscribirme"
+   │
+   ▼
+2. Frontend llama a MCP Server:
+   POST https://mcp.tudominio.com/api/v1/payments/flow/subscription/create
+   Headers:
+     X-API-Key: mcp_talleresia_abc123
+     X-Tenant: talleresia
+   Body:
+     {
+       amount: 10000,
+       customer_email: "alumno@example.com",
+       plan_id: "10000-mensual"
+     }
+   │
+   ▼
+3. MCP Server (automáticamente):
+   ├─> Busca si el customer existe en Flow (por email)
+   ├─> Si NO existe: crea customer en Flow
+   ├─> Si SÍ existe: usa el customer_id existente
+   ├─> Crea payment con subscription=1
+   ├─> Genera firma HMAC-SHA256
+   ├─> Llama a Flow API /payment/create
+   ├─> Guarda audit log
+   └─> Devuelve token, payment_url, subscription_id
+   │
+   ▼
+4. Frontend redirige a Flow.cl:
+   https://sandbox.flow.cl/app/web/pay.php?token=abc123...
+   │
+   ▼
+5. Usuario completa PRIMER PAGO en Flow.cl:
+   ├─> Selecciona Webpay (tarjeta)
+   ├─> Ingresa datos de tarjeta
+   ├─> Acepta términos de suscripción recurrente
+   ├─> Flow procesa primer pago
+   ├─> Flow guarda tarjeta para cobros futuros
+   └─> Usuario es redirigido de vuelta
+   │
+   ▼
+6. Flow envía webhook a MCP (primer pago):
+   POST https://mcp.tudominio.com/api/v1/payments/flow/webhook
+   Params: { token: "abc123..." }
+   │
+   ▼
+7. MCP Server procesa webhook:
+   ├─> Valida firma de Flow
+   ├─> Confirma primer pago exitoso
+   ├─> Activa suscripción
+   ├─> Guarda en base de datos
+   ├─> Envía email de bienvenida
+   └─> Activa acceso del usuario
+   │
+   ▼
+8. CADA MES (automático):
+   Flow cobra automáticamente la tarjeta guardada
+   │
+   ▼
+9. Flow envía webhook a MCP (cada mes):
+   POST https://mcp.tudominio.com/api/v1/payments/flow/webhook
+   Params: { token: "nuevo_token_mensual..." }
+   │
+   ▼
+10. MCP Server procesa webhook mensual:
+    ├─> Valida firma
+    ├─> Confirma pago mensual
+    ├─> Renueva acceso del usuario
+    ├─> Envía email de confirmación
+    └─> Guarda en historial de pagos
+
+    ¡Usuario mantiene acceso sin hacer nada! ✅
+```
+
+### 💡 Ventajas de Suscripciones via MCP
+
+✅ **Gestión automática de customers** - No necesitas manejar IDs de clientes
+✅ **Un solo endpoint** - `createFlowSubscription()` lo hace todo
+✅ **Webhooks automáticos** - Procesamiento de pagos mensuales sin intervención
+✅ **Multi-tenant** - Cada proyecto con sus propios planes y credenciales
+✅ **Audit completo** - Historial de todos los cobros mensuales
+✅ **Cancelación simple** - Un endpoint para cancelar suscripciones
+
+### ⚠️ Consideraciones Importantes
+
+1. **Planes en Flow Dashboard**: Debes crear los planes ANTES en Flow.cl
+2. **Plan IDs**: Los IDs deben coincidir exactamente (case-sensitive)
+3. **Primer pago requerido**: El usuario DEBE completar el primer pago para activar la suscripción
+4. **Webhooks críticos**: Asegúrate de configurar correctamente la URL de webhooks en Flow
+5. **Cancelación**: Solo cancela la renovación automática, no reembolsa el mes actual
+
+### 🧪 Testing de Suscripciones
+
+```bash
+# 1. Crear planes de prueba en Flow Sandbox
+# 2. Usar tarjetas de prueba:
+#    - 4051885600446623 (aprobada)
+# 3. Monitorear webhooks con:
+curl https://mcp.tudominio.com/api/v1/health/logs
+```
+
+---
+
 ## 🧪 Testing con Sandbox
 
 Flow.cl proporciona un entorno de pruebas:
