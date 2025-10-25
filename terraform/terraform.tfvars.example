@@ -1,0 +1,40 @@
+# ============================================
+# Terraform Variables - Example
+# Copy this file to terraform.tfvars and customize
+# ============================================
+
+# AWS Configuration
+aws_region = "us-east-1"
+
+# Project Configuration
+project_name = "mcp-server"
+environment  = "production"
+
+# Networking
+vpc_cidr = "10.0.0.0/16"
+
+# Database
+rds_instance_class = "db.t3.medium"
+db_name            = "mcpdb"
+db_username        = "mcpuser"
+db_password        = "CHANGE-THIS-STRONG-PASSWORD"
+
+# Redis
+redis_node_type = "cache.t3.small"
+
+# ECS
+ecs_task_cpu       = "1024"
+ecs_task_memory    = "2048"
+ecs_desired_count  = 3
+
+# Application
+app_image = "123456789.dkr.ecr.us-east-1.amazonaws.com/mcp-server:latest"
+app_port  = 8000
+
+# Tags
+tags = {
+  Project     = "MCP Server"
+  Environment = "Production"
+  ManagedBy   = "Terraform"
+  Team        = "DataFlow AI"
+}

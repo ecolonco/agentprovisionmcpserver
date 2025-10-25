@@ -1,0 +1,18 @@
+# Prometheus Configuration for MCP Server
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'mcp-server'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'mcp-server'
+    static_configs:
+      - targets: ['mcp-server:9090']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
