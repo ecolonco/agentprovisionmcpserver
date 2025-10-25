@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirmación de Pago</title>
+    <style>
+        body {
+            font-family: 'Arial', 'Helvetica', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .greeting {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        .payment-details {
+            background-color: #f9f9f9;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 30px 0;
+        }
+        .payment-details h2 {
+            margin-top: 0;
+            color: #667eea;
+            font-size: 20px;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+        .detail-label {
+            font-weight: 600;
+            color: #666;
+        }
+        .detail-value {
+            color: #333;
+            text-align: right;
+        }
+        .amount {
+            font-size: 32px;
+            font-weight: bold;
+            color: #4CAF50;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .footer {
+            background-color: #f4f4f4;
+            padding: 30px;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 30px;
+            background-color: #667eea;
+            color: white !important;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .success-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <div class="success-icon">✅</div>
+            <h1>¡Pago Confirmado!</h1>
+        </div>
+
+        <div class="content">
+            <p class="greeting">Hola <strong>{{customer_name}}</strong>,</p>
+
+            <p>Tu pago ha sido procesado exitosamente. A continuación encontrarás los detalles de tu transacción:</p>
+
+            <div class="amount">{{currency}} ${{amount}}</div>
+
+            <div class="payment-details">
+                <h2>Detalles del Pago</h2>
+
+                <div class="detail-row">
+                    <span class="detail-label">Descripción:</span>
+                    <span class="detail-value">{{description}}</span>
+                </div>
+
+                <div class="detail-row">
+                    <span class="detail-label">Monto:</span>
+                    <span class="detail-value"><strong>{{currency}} ${{amount}}</strong></span>
+                </div>
+
+                <div class="detail-row">
+                    <span class="detail-label">Fecha:</span>
+                    <span class="detail-value">{{payment_date}}</span>
+                </div>
+
+                <div class="detail-row">
+                    <span class="detail-label">ID de Transacción:</span>
+                    <span class="detail-value">{{transaction_id}}</span>
+                </div>
+            </div>
+
+            <p>Gracias por tu compra. Recibirás más información sobre cómo acceder a tu contenido en los próximos minutos.</p>
+
+            <p style="margin-top: 30px;">Si tienes alguna pregunta, no dudes en contactarnos.</p>
+        </div>
+
+        <div class="footer">
+            <p>Este es un correo electrónico automático, por favor no respondas a este mensaje.</p>
+            <p>&copy; 2024 {{company_name}}. Todos los derechos reservados.</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,33 @@
+🎉 ¡SUSCRIPCIÓN ACTIVADA!
+
+Hola {{customer_name}},
+
+Tu suscripción ha sido activada correctamente. ¡Bienvenido!
+
+══════════════════════════════════
+DETALLES DE TU SUSCRIPCIÓN
+══════════════════════════════════
+
+Plan: {{plan_name}}
+Monto mensual: {{currency}} ${{amount}}
+Fecha de activación: {{activation_date}}
+Próximo cobro: {{next_billing_date}}
+
+══════════════════════════════════
+
+💳 COBRO AUTOMÁTICO
+Tu tarjeta será cobrada automáticamente cada mes.
+Recibirás una notificación antes de cada cobro.
+
+Ya puedes empezar a disfrutar de todos los beneficios de tu suscripción.
+
+Accede a tu cuenta aquí: {{dashboard_url}}
+
+¿NECESITAS CANCELAR?
+Puedes cancelar tu suscripción en cualquier momento desde tu cuenta.
+No hay penalidades ni compromisos.
+
+---
+Gracias por suscribirte a {{company_name}}
+Este es un correo electrónico automático, por favor no respondas a este mensaje.
+© 2024 {{company_name}}. Todos los derechos reservados.

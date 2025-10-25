@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suscripción Activada</title>
+    <style>
+        body {
+            font-family: 'Arial', 'Helvetica', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .greeting {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        .subscription-details {
+            background-color: #E3F2FD;
+            border-left: 4px solid #2196F3;
+            padding: 20px;
+            margin: 30px 0;
+        }
+        .subscription-details h2 {
+            margin-top: 0;
+            color: #2196F3;
+            font-size: 20px;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #B3E5FC;
+        }
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+        .detail-label {
+            font-weight: 600;
+            color: #666;
+        }
+        .detail-value {
+            color: #333;
+            text-align: right;
+        }
+        .plan-name {
+            font-size: 28px;
+            font-weight: bold;
+            color: #2196F3;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .amount-monthly {
+            font-size: 24px;
+            color: #4CAF50;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .footer {
+            background-color: #f4f4f4;
+            padding: 30px;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+        .info-box {
+            background-color: #FFF3E0;
+            border-left: 4px solid #FF9800;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .info-box p {
+            margin: 5px 0;
+        }
+        .success-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 30px;
+            background-color: #2196F3;
+            color: white !important;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <div class="success-icon">🎉</div>
+            <h1>¡Suscripción Activada!</h1>
+        </div>
+
+        <div class="content">
+            <p class="greeting">Hola <strong>{{customer_name}}</strong>,</p>
+
+            <p>Tu suscripción ha sido activada correctamente. ¡Bienvenido!</p>
+
+            <div class="plan-name">{{plan_name}}</div>
+            <div class="amount-monthly">{{currency}} ${{amount}}/mes</div>
+
+            <div class="subscription-details">
+                <h2>Detalles de tu Suscripción</h2>
+
+                <div class="detail-row">
+                    <span class="detail-label">Plan:</span>
+                    <span class="detail-value"><strong>{{plan_name}}</strong></span>
+                </div>
+
+                <div class="detail-row">
+                    <span class="detail-label">Monto mensual:</span>
+                    <span class="detail-value">{{currency}} ${{amount}}</span>
+                </div>
+
+                <div class="detail-row">
+                    <span class="detail-label">Fecha de activación:</span>
+                    <span class="detail-value">{{activation_date}}</span>
+                </div>
+
+                <div class="detail-row">
+                    <span class="detail-label">Próximo cobro:</span>
+                    <span class="detail-value"><strong>{{next_billing_date}}</strong></span>
+                </div>
+            </div>
+
+            <div class="info-box">
+                <p><strong>💳 Cobro Automático</strong></p>
+                <p>Tu tarjeta será cobrada automáticamente cada mes.</p>
+                <p>Recibirás una notificación antes de cada cobro.</p>
+            </div>
+
+            <p>Ya puedes empezar a disfrutar de todos los beneficios de tu suscripción.</p>
+
+            <center>
+                <a href="{{dashboard_url}}" class="button">Ir a mi Cuenta</a>
+            </center>
+
+            <p style="margin-top: 30px; font-size: 14px; color: #666;">
+                <strong>¿Necesitas cancelar?</strong><br>
+                Puedes cancelar tu suscripción en cualquier momento desde tu cuenta. No hay penalidades ni compromisos.
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>Gracias por suscribirte a {{company_name}}</p>
+            <p>Este es un correo electrónico automático, por favor no respondas a este mensaje.</p>
+            <p>&copy; 2024 {{company_name}}. Todos los derechos reservados.</p>
+        </div>
+    </div>
+</body>
+</html>

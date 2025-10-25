@@ -1,0 +1,24 @@
+✅ ¡PAGO CONFIRMADO!
+
+Hola {{customer_name}},
+
+Tu pago ha sido procesado exitosamente.
+
+══════════════════════════════════
+DETALLES DEL PAGO
+══════════════════════════════════
+
+Descripción: {{description}}
+Monto: {{currency}} ${{amount}}
+Fecha: {{payment_date}}
+ID de Transacción: {{transaction_id}}
+
+══════════════════════════════════
+
+Gracias por tu compra. Recibirás más información sobre cómo acceder a tu contenido en los próximos minutos.
+
+Si tienes alguna pregunta, no dudes en contactarnos.
+
+---
+Este es un correo electrónico automático, por favor no respondas a este mensaje.
+© 2024 {{company_name}}. Todos los derechos reservados.
