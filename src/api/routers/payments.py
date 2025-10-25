@@ -11,6 +11,7 @@ from src.db.database import get_db
 from src.db import crud, schemas, models
 from src.core.security import get_current_user
 from src.integrations.stripe_connector import get_stripe_connector
+from src.integrations.flow_connector import get_flow_connector
 from src.utils.logger import logger
 
 router = APIRouter()
@@ -304,4 +305,265 @@ async def refund_payment(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing refund: {str(e)}"
+        )
+
+
+# ============================================
+# Flow.cl Endpoints (Chile)
+# ============================================
+
+class FlowPaymentRequest(BaseModel):
+    """Request to create a Flow payment"""
+    amount: int  # Amount in CLP (pesos chilenos)
+    subject: str
+    customer_email: EmailStr
+    payment_method: Optional[int] = None  # 1=Webpay, 2=Servipag, 3=Multicaja, 4=All
+    url_return: Optional[str] = None
+    metadata: Optional[dict] = {}
+
+
+class FlowPaymentResponse(BaseModel):
+    """Response with Flow payment details"""
+    token: str
+    payment_url: str
+    flow_order: Optional[int] = None
+
+
+@router.post(
+    "/payments/flow/create",
+    response_model=FlowPaymentResponse,
+    status_code=status.HTTP_201_CREATED
+)
+async def create_flow_payment(
+    request: FlowPaymentRequest,
+    x_tenant: str = Header(..., description="Tenant identifier"),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a payment order with Flow.cl (Chile)
+
+    **Ejemplo para TalleresIA (Chile):**
+    ```json
+    POST /api/v1/payments/flow/create
+    Headers:
+      X-API-Key: your-api-key
+      X-Tenant: talleresia
+    Body:
+    {
+      "amount": 50000,
+      "subject": "Taller de IA Básico",
+      "customer_email": "alumno@example.com",
+      "payment_method": 1,
+      "url_return": "https://talleresia.cl/success"
+    }
+    ```
+
+    **Payment Methods:**
+    - 1 = Webpay (tarjetas de crédito/débito)
+    - 2 = Servipag
+    - 3 = Multicaja
+    - 4 = Todos los medios de pago
+    - 9 = Onepay
+
+    **Returns:**
+    - token: Flow payment token
+    - payment_url: URL to redirect user for payment
+    """
+    logger.info(
+        f"Creating Flow payment for tenant {x_tenant}: "
+        f"amount={request.amount} CLP, email={request.customer_email}"
+    )
+
+    try:
+        # Get Flow connector for this tenant
+        flow = await get_flow_connector(x_tenant)
+
+        # Get MCP server base URL for webhooks
+        from src.core.config import settings
+        webhook_url = f"{settings.HOST}:{settings.PORT}{settings.API_V1_PREFIX}/payments/flow/webhook"
+
+        # Create Flow payment
+        payment = await flow.create_payment(
+            amount=request.amount,
+            currency="CLP",
+            subject=request.subject,
+            email=request.customer_email,
+            payment_method=request.payment_method,
+            url_confirmation=webhook_url,
+            url_return=request.url_return,
+            metadata={
+                **request.metadata,
+                "tenant": x_tenant,
+                "api_user": current_user.get("name", "unknown")
+            }
+        )
+
+        # Create audit log
+        await crud.AuditLogCRUD.create(
+            db,
+            schemas.AuditLogCreate(
+                event_type="flow_payment_created",
+                action="CREATE",
+                status="SUCCESS",
+                entity_type=models.EntityType.PAYMENT,
+                entity_id=payment.get("token"),
+                source_system=models.IntegrationSystem.DENTALERP,
+                target_system=models.IntegrationSystem.BANK,
+                request_data={
+                    "amount": request.amount,
+                    "email": request.customer_email,
+                    "payment_method": request.payment_method
+                },
+                response_data=payment
+            )
+        )
+
+        await flow.close()
+
+        return FlowPaymentResponse(
+            token=payment["token"],
+            payment_url=payment["payment_url"],
+            flow_order=payment.get("flowOrder")
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating Flow payment: {str(e)}")
+
+        await crud.AuditLogCRUD.create(
+            db,
+            schemas.AuditLogCreate(
+                event_type="flow_payment_failed",
+                action="CREATE",
+                status="FAILED",
+                entity_type=models.EntityType.PAYMENT,
+                error_details={"error": str(e)}
+            )
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating Flow payment: {str(e)}"
+        )
+
+
+@router.post("/payments/flow/webhook")
+async def flow_webhook(
+    token: str,
+    x_tenant: str = Header(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Handle Flow.cl webhook notifications
+
+    Flow sends a GET/POST request to this endpoint when payment status changes.
+
+    **Configure in Flow Dashboard:**
+    URL: https://your-mcp-server.com/api/v1/payments/flow/webhook
+    """
+    logger.info(f"Received Flow webhook for token: {token}")
+
+    try:
+        flow = await get_flow_connector(x_tenant)
+
+        # Confirm payment status
+        result = await flow.confirm_payment(token)
+
+        # Log webhook
+        await crud.AuditLogCRUD.create(
+            db,
+            schemas.AuditLogCreate(
+                event_type=f"flow_webhook_{result['status']}",
+                action="WEBHOOK",
+                status="SUCCESS" if result.get("status") == "success" else "INFO",
+                entity_type=models.EntityType.PAYMENT,
+                entity_id=str(result.get("flow_order")),
+                request_data={"token": token},
+                response_data=result
+            )
+        )
+
+        await flow.close()
+
+        return {"status": "received", "result": result}
+
+    except Exception as e:
+        logger.error(f"Error processing Flow webhook: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing webhook: {str(e)}"
+        )
+
+
+@router.get("/payments/flow/{token}")
+async def get_flow_payment_status(
+    token: str,
+    x_tenant: str = Header(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get Flow payment status by token
+
+    Use this to check if a payment was successful
+    """
+    logger.info(f"Getting Flow payment status: {token}")
+
+    try:
+        flow = await get_flow_connector(x_tenant)
+        payment_status = await flow.get_payment_status(token)
+        await flow.close()
+
+        # Status codes:
+        # 1 = Pending
+        # 2 = Success
+        # 3 = Rejected
+
+        status_names = {
+            1: "pending",
+            2: "success",
+            3: "rejected"
+        }
+
+        return {
+            "token": token,
+            "status": status_names.get(payment_status.get("status"), "unknown"),
+            "flow_order": payment_status.get("flowOrder"),
+            "amount": payment_status.get("amount"),
+            "currency": payment_status.get("currency"),
+            "payment_date": payment_status.get("paymentDate"),
+            "email": payment_status.get("email")
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving Flow payment: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Payment not found: {str(e)}"
+        )
+
+
+@router.get("/payments/flow/methods")
+async def get_flow_payment_methods(
+    x_tenant: str = Header(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get available Flow payment methods
+
+    Returns list of payment methods supported by your Flow account
+    """
+    logger.info(f"Getting Flow payment methods for tenant: {x_tenant}")
+
+    try:
+        flow = await get_flow_connector(x_tenant)
+        methods = await flow.get_payment_methods()
+        await flow.close()
+
+        return methods
+
+    except Exception as e:
+        logger.error(f"Error getting payment methods: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting payment methods: {str(e)}"
         )
