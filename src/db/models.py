@@ -58,6 +58,13 @@ class EntityType(str, enum.Enum):
     TRANSACTION = "transaction"
     DEPARTMENT = "department"
     VISIT = "visit"
+    # Aremko entities
+    CUSTOMER = "customer"
+    SERVICE = "service"
+    PRODUCT = "product"
+    RESERVATION = "reservation"
+    SALE = "sale"
+    CUSTOMER_PROFILE = "customer_profile"
 
 
 class UserRole(str, enum.Enum):
@@ -75,6 +82,10 @@ class IntegrationSystem(str, enum.Enum):
     NETSUITE = "netsuite"
     BANK = "bank"
     DENTALERP = "dentalerp"
+    # Aremko systems
+    AREMKO_DB = "aremko_db"
+    AREMKO_LEGACY = "aremko_legacy"
+    AREMKO_UNIFIED = "aremko_unified"
 
 
 # ============================================

@@ -10,7 +10,7 @@ from prometheus_client import make_asgi_app
 
 from src.core.config import settings
 from src.db.database import init_db, check_db_connection
-from src.api.routers import health, mappings, sync, payments, emails, auth
+from src.api.routers import health, mappings, sync, payments, emails, auth, aremko
 from src.utils.logger import logger
 
 
@@ -158,6 +158,13 @@ app.include_router(
     auth.router,
     prefix=settings.API_V1_PREFIX,
     tags=["Authentication"]
+)
+
+# Include Aremko router
+app.include_router(
+    aremko.router,
+    prefix=settings.API_V1_PREFIX + "/aremko",
+    tags=["Aremko"]
 )
 
 # ============================================
